@@ -1,0 +1,9 @@
+streamlit
+pandas
+numpy
+plotly
+scipy
+scikit-learn==1.5.2
+scikit-survival==0.23.1
+joblib
+lifelines
