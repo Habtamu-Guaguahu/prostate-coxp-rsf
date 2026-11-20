@@ -1,5 +1,5 @@
 # =========================================================
-# PROSTATE CANCER SURVIVAL PREDICTOR — GBSA · COX-P FEATURES
+# PROSTATE CANCER SURVIVAL PREDICTOR — RSF · COX-P FEATURES
 # Output: Cox-recalibrated survival probability (paper's method)
 # =========================================================
 import os, pickle
@@ -11,8 +11,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 st.set_page_config(
-    page_title="Prostate Survival — GBSA (Cox-P)",
-    page_icon="🩺", layout="wide", initial_sidebar_state="expanded",
+    page_title="Prostate Survival — RSF (Cox-P)",
+    page_icon="🌲", layout="wide", initial_sidebar_state="expanded",
 )
 
 # ---------------------------------------------------------
@@ -22,7 +22,7 @@ st.set_page_config(
 def load_artifacts():
     d = os.path.join(os.path.dirname(__file__), 'models')
     try:
-        with open(os.path.join(d, 'gbsa_model.pkl'), 'rb') as f:
+        with open(os.path.join(d, 'rsf_model_small.pkl'), 'rb') as f:
             model = pickle.load(f)
         with open(os.path.join(d, 'feature_names.pkl'), 'rb') as f:
             feature_names = pickle.load(f)
@@ -69,13 +69,14 @@ def label(f): return FEATURE_LABELS.get(f, f)
 # PREDICTION — recalibrated survival probability
 # ---------------------------------------------------------
 def predict_raw_pi(model, X):
-    """Raw model output (Cox partial-hazard for GBSA)."""
+    """Raw model output (RSF mortality score, positive)."""
     return float(model.predict(X)[0])
 
 def recalibrated_survival_functions(model, X, recal):
     """
     Recalibrated survival functions for the patient.
     Matches the pipeline: transform PI → Cox recal → survival function.
+    RSF uses log transform (positive mortality scores).
     """
     pi = model.predict(X).flatten()
     if recal['transform'] == 'log':
@@ -87,7 +88,7 @@ def recalibrated_survival_functions(model, X, recal):
     return recal['cox_model'].predict_survival_function(df)
 
 def raw_survival_functions(model, X):
-    """Raw model survival functions (for side-by-side comparison)."""
+    """Raw model survival functions (tree-averaged KM)."""
     return model.predict_survival_function(X)
 
 def surf_at(fn, t):
@@ -98,7 +99,7 @@ def percentile_of(pi, metrics):
     pct = metrics.get('risk_percentiles') or {}
     if pct:
         return min(sorted(pct.keys()), key=lambda k: abs(pi - pct[k]))
-    lo, hi = metrics.get('min_risk', -5), metrics.get('max_risk', 5)
+    lo, hi = metrics.get('min_risk', 0), metrics.get('max_risk', 60)
     if hi - lo > 0:
         return float(np.clip((pi - lo) / (hi - lo), 0, 1)) * 100
     return 50.0
@@ -197,27 +198,27 @@ def main():
     m = art['metrics']
     st.markdown(f"""
     <div style='text-align:center;padding:1rem;
-                background:linear-gradient(90deg,#1B4332,#2E86AB);
+                background:linear-gradient(90deg,#1B3A5C,#3498DB);
                 border-radius:10px;color:white;'>
-        <h1>🩺 Prostate Cancer Survival Predictor</h1>
+        <h1>🌲 Prostate Cancer Survival Predictor</h1>
         <p style='font-size:1.1rem;margin:0;'>
-            GBSA · Stepwise Cox-P Features · Cox-Recalibrated</p>
+            RSF · Stepwise Cox-P Features · Cox-Recalibrated</p>
         <p style='font-size:0.85rem;margin-top:0.5rem;'>
-            C-index {m.get('c_index',0.8671):.4f}
-            &nbsp;|&nbsp; IBS {m.get('ibs',0.0808):.4f}
-            [95% CI {m.get('ibs_ci',(0.0696,0.0914))[0]:.4f},
-             {m.get('ibs_ci',(0.0696,0.0914))[1]:.4f}]
-            &nbsp;|&nbsp; ERV {m.get('erv',0.4725)*100:.1f}%</p>
+            C-index {m.get('c_index',0.8555):.4f}
+            &nbsp;|&nbsp; IBS {m.get('ibs',0.0891):.4f}
+            [95% CI {m.get('ibs_ci',(0.0802,0.0985))[0]:.4f},
+             {m.get('ibs_ci',(0.0802,0.0985))[1]:.4f}]
+            &nbsp;|&nbsp; ERV {m.get('erv',0.4181)*100:.1f}%</p>
     </div>""", unsafe_allow_html=True)
     st.markdown("---")
 
     # ---- SIDEBAR ----
     with st.sidebar:
         st.header("📊 Model Performance")
-        st.metric("Test C-index", f"{m.get('c_index',0.8671):.4f}")
-        st.metric("IBS",          f"{m.get('ibs',0.0808):.4f}")
+        st.metric("Test C-index", f"{m.get('c_index',0.8555):.4f}")
+        st.metric("IBS",          f"{m.get('ibs',0.0891):.4f}")
         st.metric("ERV",
-                  f"{m.get('erv',0.4725)*100:.1f}%",
+                  f"{m.get('erv',0.4181)*100:.1f}%",
                   help="Explained Relative Variance vs Kaplan-Meier")
         st.markdown("---")
         st.header("🔧 Method")
@@ -307,11 +308,11 @@ def main():
                 x=grid, y=curve_recal, mode='lines',
                 name=f"Patient Cox-recalibrated "
                      f"({p_recal*100:.1f}% @ {t_pred}m)",
-                line=dict(color='#FFB400', width=4)))
+                line=dict(color='#00E5FF', width=4)))
             fig.add_trace(go.Scatter(
                 x=[t_pred], y=[p_recal], mode='markers',
                 name=f"{t_pred}m prediction",
-                marker=dict(size=22, color='#FFB400', symbol='star',
+                marker=dict(size=22, color='#00E5FF', symbol='star',
                             line=dict(width=3, color='black'))))
             fig.update_layout(
                 title=f"<b>Recalibrated Survival Prediction</b>"
@@ -359,12 +360,11 @@ def main():
             with st.expander("ℹ️ About the recalibration method"):
                 st.markdown(f"""
 The model outputs a **Cox-recalibrated survival probability** at the
-chosen horizon. This uses the same method as the paper's calibration
-analysis:
+chosen horizon — the same method as the paper's calibration analysis:
 
 1. Compute the model's prognostic index (PI) for this patient.
-2. Transform PI: `{art['recal']['transform']}` (identity for GBSA,
-   log for RSF-style positive scores).
+2. Transform PI: `{art['recal']['transform']}` (log transform for RSF —
+   RSF outputs positive mortality scores).
 3. Evaluate a Cox survival model — fit on **out-of-fold training PI** —
    at the chosen horizon. Its coefficient β = `{art['recal']['coef']:.4f}`.
 
